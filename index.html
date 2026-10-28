@@ -132,10 +132,8 @@
 </div>
 
 <script>
-  // Updated with your active SheetDB API endpoint
   const API_URL = 'https://sheetdb.io/api/v1/otwcs9ixqae9o';
 
-  // Master configuration for all 18 hospital OPD fields
   const FORM_FIELDS = [
     { key: 'HRN', label: 'Patient HRN', type: 'text', default: 'MMH - OPD - ' },
     { key: 'FullName', label: 'Full Name', type: 'text', wide: true },
@@ -160,6 +158,46 @@
   let currentRecords = [];
   let mode = 'create';
   let searchTimer = null;
+  let dbKeyMap = {}; // Maps field key -> actual Google Sheet column header string
+
+  // Dynamically resolves database column headers to FORM_FIELDS
+  function resolveFieldKeys(sampleRow) {
+    if (!sampleRow) return;
+    FORM_FIELDS.forEach(f => {
+      const fKeyNorm = f.key.toLowerCase().replace(/[\s_-]/g, '');
+      const fLabelNorm = f.label.toLowerCase().replace(/[\s_-]/g, '');
+      
+      for (let actualKey in sampleRow) {
+        const actualNorm = actualKey.toLowerCase().replace(/[\s_-]/g, '');
+        if (actualNorm === fKeyNorm || actualNorm === fLabelNorm || 
+           (fKeyNorm === 'dob' && actualNorm === 'birthdate') ||
+           (fKeyNorm === 'consultdate' && (actualNorm === 'checkupdate' || actualNorm === 'dateofcheckup')) ||
+           (fKeyNorm === 'fpe' && actualNorm === 'ekon')) {
+          dbKeyMap[f.key] = actualKey;
+          break;
+        }
+      }
+    });
+  }
+
+  // Safely extracts field value regardless of exact spacing/capitalization in SheetDB JSON
+  function getFieldValue(row, field) {
+    if (!row) return '';
+    const mappedKey = dbKeyMap[field.key];
+    if (mappedKey && row[mappedKey] !== undefined) return row[mappedKey];
+    if (row[field.key] !== undefined) return row[field.key];
+    if (row[field.label] !== undefined) return row[field.label];
+    
+    const targetNorms = [
+      field.key.toLowerCase().replace(/[\s_-]/g, ''),
+      field.label.toLowerCase().replace(/[\s_-]/g, '')
+    ];
+    for (let k in row) {
+      const kNorm = k.toLowerCase().replace(/[\s_-]/g, '');
+      if (targetNorms.includes(kNorm)) return row[k];
+    }
+    return '';
+  }
 
   // Build the horizontal input row UI
   function buildFormUI() {
@@ -187,7 +225,6 @@
         if (f.readonly) input.readOnly = true;
         if (f.pattern) { input.pattern = f.pattern; input.title = f.title; }
         
-        // Compute Age on DOB change
         if (f.key === 'DOB') {
           input.addEventListener('change', () => {
             const dob = new Date(input.value);
@@ -204,7 +241,6 @@
       fieldsContainer.appendChild(group);
     });
 
-    // Populate Table Headers
     const tableHeader = document.getElementById('tableHeader');
     tableHeader.innerHTML = FORM_FIELDS.map(f => `<th>${f.label}</th>`).join('');
   }
@@ -212,13 +248,15 @@
   // Fetch records from SheetDB
   function loadData(query = '') {
     setIndicator('busy', '● Fetching Database...');
-    const url = query ? `${API_URL}/search?HRN=*${encodeURIComponent(query)}*` : API_URL;
+    const hrnCol = dbKeyMap['HRN'] || 'Patient HRN';
+    const url = query ? `${API_URL}/search?${encodeURIComponent(hrnCol)}=*${encodeURIComponent(query)}*` : API_URL;
 
     fetch(url)
       .then(res => res.json())
       .then(data => {
         if (data.error) throw new Error(data.error);
         currentRecords = Array.isArray(data) ? data : [];
+        if (currentRecords.length > 0) resolveFieldKeys(currentRecords[0]);
         renderTable();
         setIndicator('ok', '● Connected to SheetDB');
       })
@@ -242,11 +280,12 @@
     currentRecords.forEach(row => {
       const tr = document.createElement('tr');
       tr.innerHTML = FORM_FIELDS.map(f => {
+        const val = getFieldValue(row, f);
         if (f.type === 'checkbox') {
-          const isChecked = (row[f.key] === "TRUE") ? 'checked' : '';
+          const isChecked = (String(val).toUpperCase() === "TRUE" || String(val) === "1") ? 'checked' : '';
           return `<td class="result-checkbox-cell"><input type="checkbox" disabled ${isChecked}></td>`;
         }
-        return `<td>${row[f.key] || ''}</td>`;
+        return `<td>${val !== undefined && val !== null ? val : ''}</td>`;
       }).join('');
       
       tr.addEventListener('click', () => {
@@ -261,7 +300,8 @@
   // Populate editor form with selected row
   function loadIntoEditor(record) {
     mode = 'update';
-    document.getElementById('origHRN').value = record.HRN;
+    const hrnVal = getFieldValue(record, FORM_FIELDS.find(f => f.key === 'HRN'));
+    document.getElementById('origHRN').value = hrnVal;
     document.getElementById('formTitle').textContent = 'Edit Record';
     document.getElementById('btnDelete').disabled = false;
     document.getElementById('saveBtn').textContent = '✏️ Update Record';
@@ -269,8 +309,9 @@
 
     FORM_FIELDS.forEach(f => {
       const el = document.getElementById(`f_${f.key}`);
-      if (f.type === 'checkbox') el.checked = (record[f.key] === "TRUE");
-      else el.value = record[f.key] || '';
+      const val = getFieldValue(record, f);
+      if (f.type === 'checkbox') el.checked = (String(val).toUpperCase() === "TRUE" || String(val) === "1");
+      else el.value = val || '';
     });
   }
 
@@ -292,7 +333,8 @@
     const payload = {};
     FORM_FIELDS.forEach(f => {
       const el = document.getElementById(`f_${f.key}`);
-      payload[f.key] = (f.type === 'checkbox') ? (el.checked ? "TRUE" : "FALSE") : el.value;
+      const propName = dbKeyMap[f.key] || f.label;
+      payload[propName] = (f.type === 'checkbox') ? (el.checked ? "TRUE" : "FALSE") : el.value;
     });
 
     const btn = document.getElementById('saveBtn');
@@ -316,7 +358,8 @@
       .finally(() => { btn.disabled = false; btn.textContent = '💾 Save Record'; });
     } else {
       const targetHrn = document.getElementById('origHRN').value;
-      fetch(`${API_URL}/HRN/${encodeURIComponent(targetHrn)}`, {
+      const hrnColName = dbKeyMap['HRN'] || 'Patient HRN';
+      fetch(`${API_URL}/${encodeURIComponent(hrnColName)}/${encodeURIComponent(targetHrn)}`, {
         method: 'PATCH',
         headers: { 'Accept': 'application/json', 'Content-Type': 'application/json' },
         body: JSON.stringify({ data: [payload] })
@@ -338,8 +381,9 @@
 
     document.getElementById('btnDelete').disabled = true;
     setIndicator('busy', '● Deleting...');
+    const hrnColName = dbKeyMap['HRN'] || 'Patient HRN';
     
-    fetch(`${API_URL}/HRN/${encodeURIComponent(hrn)}`, {
+    fetch(`${API_URL}/${encodeURIComponent(hrnColName)}/${encodeURIComponent(hrn)}`, {
       method: 'DELETE',
       headers: { 'Accept': 'application/json' }
     }).then(res => res.json())
