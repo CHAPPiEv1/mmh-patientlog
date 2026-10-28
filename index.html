@@ -1,0 +1,392 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MMH Record Manager</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: Arial, sans-serif; background: #f4f7fb; color: #203047; overflow-x: hidden; }
+    .app { padding: 18px; width: 100%; max-width: none; }
+    
+    .top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
+    h2 { margin: 0; font-size: 21px; }
+    h3 { margin: 0 0 14px; font-size: 16px; text-align: center; font-weight: 700; width: 100%; }
+    .live { color: #16803d; font-size: 12px; }
+
+    /* Layout & Panels */
+    .layout { display: flex; flex-direction: column-reverse; width: 100%; gap: 12px; }
+    .panel { background: white; padding: 16px; border-radius: 12px; box-shadow: 0 2px 9px #0000000c; width: 100%; min-width: 0; }
+
+    input, select { width: calc(100% - 10px) !important; padding: 9px; margin: 5px; height: 38px; border: 1px solid #cbd5e1; border-radius: 5px; font: inherit; background: white; font-size: 12px; text-align: center; display: block; min-width: 0; }
+    input:focus, select:focus { border-color: #1769d2; outline: none; }
+    input[readonly] { background: #f1f5f9; cursor: not-allowed; }
+
+    button { padding: 10px 14px; border: none; border-radius: 7px; background: #1769d2; color: white; cursor: pointer; font-weight: bold; transition: background-color 0.15s ease, opacity 0.15s ease, transform 0.1s ease; min-width: 145px; }
+    button:active { transform: scale(0.97); }
+    button:disabled { opacity: .5; cursor: wait; }
+    button.secondary { background: #64748b; min-width: auto; }
+    button.green { background: #16803d; }
+
+    .actions { display: flex; gap: 10px; margin-top: 16px; justify-content: center; flex-wrap: wrap; }
+    
+    /* Horizontal scrolling field layout */
+    #fields { display: flex !important; flex-wrap: nowrap !important; width: 100%; overflow-x: auto; overflow-y: hidden; gap: 0; padding: 0 0 12px; border: 1px solid #dce3ec; border-radius: 8px; }
+    
+    .field-group { flex: 0 0 200px; min-width: 200px; max-width: 360px; border-right: 1px solid #dce3ec; box-sizing: border-box; }
+    .field-group.wide { flex: 0 0 300px; min-width: 300px; }
+    .field-group label { display: flex; align-items: center; justify-content: center; text-align: center; min-height: 44px; margin: 0; padding: 6px; background: #eaf0f7; border-bottom: 1px solid #dce3ec; font-size: 11px; font-weight: 700; overflow-wrap: anywhere; }
+
+    /* Checkboxes */
+    .field-group:has(input[type="checkbox"]) { flex: 0 0 85px !important; min-width: 85px !important; max-width: 85px !important; }
+    .field-group input[type="checkbox"] { display: block; width: 22px !important; height: 22px !important; margin: 12px auto !important; padding: 0 !important; accent-color: #0f766e; cursor: pointer; }
+
+    /* Results Table */
+    #results { display: block; width: 100%; max-height: 460px; min-height: 280px; overflow: auto; border: 1px solid #dce3ec; border-radius: 8px; }
+    #results table { border-collapse: separate !important; border-spacing: 0; width: max-content !important; min-width: 100% !important; table-layout: auto; }
+    #results th, #results td { min-width: 0 !important; max-width: 360px; padding: 9px 12px !important; box-sizing: border-box; text-align: center !important; vertical-align: middle; white-space: nowrap !important; }
+    #results thead th { position: sticky !important; top: 0; z-index: 2; background: #eaf0f7 !important; border-bottom: 1px solid #dce3ec; font-size: 12px;}
+    #results tbody tr:nth-child(even) { background: #f8fafc; }
+    #results tbody tr:hover { background: #e8f1ff !important; cursor: pointer; }
+    #results tbody tr.selected { background: #dceaff; border-color: #1769d2; }
+    
+    .result-checkbox-cell { text-align: center !important; min-width: 65px !important; width: 65px; }
+    .result-checkbox-cell input[type="checkbox"] { width: 19px; height: 19px; margin: 0; accent-color: #0f766e; cursor: default; }
+
+    /* Scrollbars */
+    ::-webkit-scrollbar { width: 10px; height: 10px; }
+    ::-webkit-scrollbar-thumb { background: #aab8c8; border-radius: 8px; }
+    ::-webkit-scrollbar-track { background: #eef2f7; }
+
+    /* Status Toolbar */
+    .rm-status-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; margin: 7px 0 9px; }
+    .rm-indicators { display: flex; align-items: center; flex-wrap: wrap; gap: 5px; flex: 1; min-width: 0; }
+    .rm-indicator { display: inline-flex; align-items: center; gap: 4px; padding: 5px 7px; border: 1px solid #cbd5e1; border-radius: 6px; background: #f8fafc; color: #475569; font-size: 11px; font-weight: 600; white-space: nowrap; }
+    .rm-indicator[data-state="ok"] { color: #166534; border-color: #bbf7d0; background: #f0fdf4; }
+    .rm-indicator[data-state="busy"] { color: #1d4ed8; border-color: #bfdbfe; background: #eff6ff; }
+    .rm-indicator[data-state="error"] { color: #b91c1c; border-color: #fecaca; background: #fef2f2; }
+    
+    #message { margin-top: 12px; font-size: 12px; text-align: center; font-weight: bold; }
+    .error { color: #b91c1c; }
+    .success { color: #16803d; }
+    
+    .window-controls { display: flex; align-items: center; gap: 7px; }
+    .window-btn { width: 34px; height: 30px; min-width: 34px; padding: 0; background: #e5edf7; color: #203047; border: 1px solid #cbd5e1; font-size: 19px; line-height: 1; min-width: auto; }
+  </style>
+</head>
+<body>
+
+<div class="app">
+  <div class="top">
+    <h2>MMH Record Manager</h2>
+    <div class="window-controls">
+      <span class="live" id="live">● Connected</span>
+      <button type="button" class="window-btn">−</button>
+      <button type="button" class="window-btn">□</button>
+    </div>
+  </div>
+
+  <div class="layout">
+    <!-- SEARCH PANEL -->
+    <div class="panel">
+      <h3>Search Records</h3>
+      <input id="search" placeholder="Search by Patient HRN or Name..." oninput="scheduleSearch()">
+      
+      <p id="count" style="text-align: center; font-size: 12px; color: #64748b;">Loading...</p>
+      
+      <div class="rm-status-toolbar">
+        <button class="secondary" id="refreshNowBtn" type="button" onclick="loadData()">↻ Refresh Database</button>
+        <div class="rm-indicators">
+          <span class="rm-indicator" id="rmConnection" data-state="ok">● Connected to SheetDB</span>
+        </div>
+      </div>
+      
+      <div id="results">
+        <table id="resultsTable">
+          <thead><tr id="tableHeader"></tr></thead>
+          <tbody id="tableBody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- RECORD EDITOR PANEL -->
+    <div class="panel">
+      <h3 id="formTitle">New Record</h3>
+      <form id="recordForm">
+        <input type="hidden" id="origHRN">
+        <div id="fields">
+          <!-- Dynamically generated input fields -->
+        </div>
+
+        <div class="actions">
+          <button type="button" class="green" id="saveBtn" onclick="saveData()">💾 Save Record</button>
+          <button type="button" class="secondary" id="newBtn" onclick="newRecord()">+ New</button>
+          <button type="button" id="deleteBtn" style="background:#dc2626;" onclick="deleteData()" disabled>🗑️ Delete</button>
+          <button type="button" id="copyBtn" style="background:#0f766e;" onclick="copySelectedRecord()">📋 Copy Record</button>
+        </div>
+      </form>
+      <div id="message"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+  // Updated with your active SheetDB API endpoint
+  const API_URL = 'https://sheetdb.io/api/v1/otwcs9ixqae9o';
+
+  // Master configuration for all 18 hospital OPD fields
+  const FORM_FIELDS = [
+    { key: 'HRN', label: 'Patient HRN', type: 'text', default: 'MMH - OPD - ' },
+    { key: 'FullName', label: 'Full Name', type: 'text', wide: true },
+    { key: 'DOB', label: 'Date of Birth', type: 'date' },
+    { key: 'Age', label: 'Age', type: 'number', readonly: true },
+    { key: 'Sex', label: 'Sex', type: 'select', options: ['Male', 'Female'] },
+    { key: 'CivilStatus', label: 'Civil Status', type: 'select', options: ['Single', 'Married', 'Live-in', 'Divorced/Annulled', 'Separated', 'Widowed'] },
+    { key: 'HCI', label: 'HCI', type: 'text', pattern: '[A-Za-z\\s]+', title: 'Text/Characters only' },
+    { key: 'PIN', label: 'PIN', type: 'text', pattern: '\\d+', title: 'Integers only' },
+    { key: 'Category', label: 'Member Category', type: 'select', options: ['Member', 'Dependent'] },
+    { key: 'Address', label: 'Address', type: 'text', wide: true },
+    { key: 'Phone', label: 'Phone', type: 'text' },
+    { key: 'ConsultDate', label: 'Consult Date', type: 'date' },
+    { key: 'Diagnosis', label: 'Diagnosis', type: 'text', wide: true },
+    { key: 'Remarks', label: 'Remarks', type: 'text', wide: true },
+    { key: 'MCA', label: 'MCA', type: 'checkbox' },
+    { key: 'PCU', label: 'PCU', type: 'checkbox' },
+    { key: 'FPE', label: 'FPE', type: 'checkbox' },
+    { key: 'eClaims', label: 'eClaims', type: 'checkbox' }
+  ];
+
+  let currentRecords = [];
+  let mode = 'create';
+  let searchTimer = null;
+
+  // Build the horizontal input row UI
+  function buildFormUI() {
+    const fieldsContainer = document.getElementById('fields');
+    fieldsContainer.innerHTML = '';
+
+    FORM_FIELDS.forEach(f => {
+      const group = document.createElement('div');
+      group.className = 'field-group' + (f.wide ? ' wide' : '');
+
+      const label = document.createElement('label');
+      label.textContent = f.label;
+      group.appendChild(label);
+
+      if (f.type === 'select') {
+        const select = document.createElement('select');
+        select.id = `f_${f.key}`;
+        select.innerHTML = `<option value="">Select...</option>` + f.options.map(o => `<option value="${o}">${o}</option>`).join('');
+        group.appendChild(select);
+      } else {
+        const input = document.createElement('input');
+        input.type = f.type;
+        input.id = `f_${f.key}`;
+        if (f.default) input.value = f.default;
+        if (f.readonly) input.readOnly = true;
+        if (f.pattern) { input.pattern = f.pattern; input.title = f.title; }
+        
+        // Compute Age on DOB change
+        if (f.key === 'DOB') {
+          input.addEventListener('change', () => {
+            const dob = new Date(input.value);
+            if (!isNaN(dob)) {
+              const today = new Date();
+              let age = today.getFullYear() - dob.getFullYear();
+              if (today.getMonth() < dob.getMonth() || (today.getMonth() === dob.getMonth() && today.getDate() < dob.getDate())) age--;
+              document.getElementById('f_Age').value = age;
+            }
+          });
+        }
+        group.appendChild(input);
+      }
+      fieldsContainer.appendChild(group);
+    });
+
+    // Populate Table Headers
+    const tableHeader = document.getElementById('tableHeader');
+    tableHeader.innerHTML = FORM_FIELDS.map(f => `<th>${f.label}</th>`).join('');
+  }
+
+  // Fetch records from SheetDB
+  function loadData(query = '') {
+    setIndicator('busy', '● Fetching Database...');
+    const url = query ? `${API_URL}/search?HRN=*${encodeURIComponent(query)}*` : API_URL;
+
+    fetch(url)
+      .then(res => res.json())
+      .then(data => {
+        if (data.error) throw new Error(data.error);
+        currentRecords = Array.isArray(data) ? data : [];
+        renderTable();
+        setIndicator('ok', '● Connected to SheetDB');
+      })
+      .catch(err => {
+        setIndicator('error', '● Connection Error');
+        document.getElementById('tableBody').innerHTML = `<tr><td colspan="${FORM_FIELDS.length}">Error loading data: ${err.message}</td></tr>`;
+      });
+  }
+
+  // Render search results table
+  function renderTable() {
+    const tbody = document.getElementById('tableBody');
+    document.getElementById('count').textContent = `${currentRecords.length} record(s) found`;
+    tbody.innerHTML = '';
+
+    if (currentRecords.length === 0) {
+      tbody.innerHTML = `<tr><td colspan="${FORM_FIELDS.length}">No records found.</td></tr>`;
+      return;
+    }
+
+    currentRecords.forEach(row => {
+      const tr = document.createElement('tr');
+      tr.innerHTML = FORM_FIELDS.map(f => {
+        if (f.type === 'checkbox') {
+          const isChecked = (row[f.key] === "TRUE") ? 'checked' : '';
+          return `<td class="result-checkbox-cell"><input type="checkbox" disabled ${isChecked}></td>`;
+        }
+        return `<td>${row[f.key] || ''}</td>`;
+      }).join('');
+      
+      tr.addEventListener('click', () => {
+        document.querySelectorAll('#tableBody tr').forEach(r => r.classList.remove('selected'));
+        tr.classList.add('selected');
+        loadIntoEditor(row);
+      });
+      tbody.appendChild(tr);
+    });
+  }
+
+  // Populate editor form with selected row
+  function loadIntoEditor(record) {
+    mode = 'update';
+    document.getElementById('origHRN').value = record.HRN;
+    document.getElementById('formTitle').textContent = 'Edit Record';
+    document.getElementById('btnDelete').disabled = false;
+    document.getElementById('saveBtn').textContent = '✏️ Update Record';
+    showMessage('', '');
+
+    FORM_FIELDS.forEach(f => {
+      const el = document.getElementById(`f_${f.key}`);
+      if (f.type === 'checkbox') el.checked = (record[f.key] === "TRUE");
+      else el.value = record[f.key] || '';
+    });
+  }
+
+  // Reset editor for a new entry
+  function newRecord() {
+    mode = 'create';
+    document.getElementById('recordForm').reset();
+    document.getElementById('origHRN').value = '';
+    document.getElementById('f_HRN').value = 'MMH - OPD - ';
+    document.getElementById('formTitle').textContent = 'New Record';
+    document.getElementById('btnDelete').disabled = true;
+    document.getElementById('saveBtn').textContent = '💾 Save Record';
+    document.querySelectorAll('#tableBody tr').forEach(r => r.classList.remove('selected'));
+    showMessage('', '');
+  }
+
+  // Save changes (POST for Create, PATCH for Update)
+  function saveData() {
+    const payload = {};
+    FORM_FIELDS.forEach(f => {
+      const el = document.getElementById(`f_${f.key}`);
+      payload[f.key] = (f.type === 'checkbox') ? (el.checked ? "TRUE" : "FALSE") : el.value;
+    });
+
+    const btn = document.getElementById('saveBtn');
+    btn.disabled = true;
+    btn.textContent = '⏳ Processing...';
+    setIndicator('busy', '● Saving...');
+
+    if (mode === 'create') {
+      fetch(API_URL, {
+        method: 'POST',
+        headers: { 'Accept': 'application/json', 'Content-Type': 'application/json' },
+        body: JSON.stringify({ data: [payload] })
+      }).then(res => res.json())
+      .then(data => {
+        if (data.error) throw new Error(data.error);
+        showMessage('✓ Record Created Successfully!', 'success');
+        loadData();
+        newRecord();
+      })
+      .catch(err => showMessage('Save failed: ' + err.message, 'error'))
+      .finally(() => { btn.disabled = false; btn.textContent = '💾 Save Record'; });
+    } else {
+      const targetHrn = document.getElementById('origHRN').value;
+      fetch(`${API_URL}/HRN/${encodeURIComponent(targetHrn)}`, {
+        method: 'PATCH',
+        headers: { 'Accept': 'application/json', 'Content-Type': 'application/json' },
+        body: JSON.stringify({ data: [payload] })
+      }).then(res => res.json())
+      .then(data => {
+        if (data.error) throw new Error(data.error);
+        showMessage('✓ Record Updated Successfully!', 'success');
+        loadData();
+      })
+      .catch(err => showMessage('Update failed: ' + err.message, 'error'))
+      .finally(() => { btn.disabled = false; btn.textContent = '✏️ Update Record'; });
+    }
+  }
+
+  // Delete matching record by HRN
+  function deleteData() {
+    const hrn = document.getElementById('origHRN').value;
+    if (!confirm(`Are you sure you want to permanently delete patient ${hrn}?`)) return;
+
+    document.getElementById('btnDelete').disabled = true;
+    setIndicator('busy', '● Deleting...');
+    
+    fetch(`${API_URL}/HRN/${encodeURIComponent(hrn)}`, {
+      method: 'DELETE',
+      headers: { 'Accept': 'application/json' }
+    }).then(res => res.json())
+    .then(data => {
+      if (data.error) throw new Error(data.error);
+      showMessage('✓ Record Deleted!', 'success');
+      loadData();
+      newRecord();
+    })
+    .catch(err => showMessage('Delete failed: ' + err.message, 'error'));
+  }
+
+  // Copy row formatted for direct pasting into Google Sheets
+  function copySelectedRecord() {
+    const copyData = FORM_FIELDS.map(f => {
+      const el = document.getElementById(`f_${f.key}`);
+      return (f.type === 'checkbox') ? (el.checked ? "TRUE" : "FALSE") : el.value;
+    });
+    
+    navigator.clipboard.writeText(copyData.join('\t')).then(() => {
+      showMessage('✓ Row copied! Open Google Sheets and press Ctrl+V.', 'success');
+    });
+  }
+
+  // Debounced live search
+  function scheduleSearch() {
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(() => {
+      loadData(document.getElementById('search').value.trim());
+    }, 400);
+  }
+
+  // UI status and messaging helpers
+  function setIndicator(state, text) {
+    const ind = document.getElementById('rmConnection');
+    ind.setAttribute('data-state', state);
+    ind.textContent = text;
+  }
+  function showMessage(text, type) {
+    const msg = document.getElementById('message');
+    msg.textContent = text;
+    msg.className = type;
+  }
+
+  // Initialize UI & load initial data
+  buildFormUI();
+  loadData();
+</script>
+</body>
+</html>
